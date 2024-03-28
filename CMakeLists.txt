@@ -540,7 +540,7 @@ function(cutlass_apply_standard_compile_options TARGET)
     set(_FLAGS_DEBUG ${__CUTLASS_CUDA_FLAGS_DEBUG} ${__CUTLASS_CUDA_NVCC_FLAGS_DEBUG})
   endif()
 
-  target_link_libraries(${TARGET} PRIVATE CUTLASS)
+  target_link_libraries(${TARGET} PRIVATE CUTLASS pthread)
 
   target_compile_options(
     ${TARGET}

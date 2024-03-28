@@ -105,6 +105,7 @@
 #include "cutlass/util/tensor_view_io.h"
 
 #include "helper.h"
+using namespace std;
 
 
 
@@ -368,225 +369,228 @@ typename DeviceGemmStreamK::Arguments args_from_options(
 }
 
 
-/// Execute a given example GEMM computation
-template <typename DeviceGemmT>
-Result run(std::string description, Options &options)
-{
-  // Display test description
-  std::cout << std::endl << description << std::endl;
+// /// Execute a given example GEMM computation
+// template <typename DeviceGemmT>
+// Result run(std::string description, Options &options)
+// {
+//   // Display test description
+//   std::cout << std::endl << description << std::endl;
 
-  // Zero-initialize test output matrix D
-  cutlass::reference::host::TensorFill(options.tensor_d.host_view());
-  options.tensor_d.sync_device();
+//   // Zero-initialize test output matrix D
+//   cutlass::reference::host::TensorFill(options.tensor_d.host_view());
+//   options.tensor_d.sync_device();
 
-  // Instantiate CUTLASS kernel depending on templates
-  DeviceGemmT device_gemm;
+//   // Instantiate CUTLASS kernel depending on templates
+//   DeviceGemmT device_gemm;
 
-  // Create a structure of gemm kernel arguments suitable for invoking an instance of DeviceGemmT
-  auto arguments = args_from_options(device_gemm, options, options.tensor_a, options.tensor_b, options.tensor_c, options.tensor_d);
+//   // Create a structure of gemm kernel arguments suitable for invoking an instance of DeviceGemmT
+//   auto arguments = args_from_options(device_gemm, options, options.tensor_a, options.tensor_b, options.tensor_c, options.tensor_d);
 
-  // Using the arguments, query for extra workspace required for matrix multiplication computation
-  size_t workspace_size = DeviceGemmT::get_workspace_size(arguments);
+//   // Using the arguments, query for extra workspace required for matrix multiplication computation
+//   size_t workspace_size = DeviceGemmT::get_workspace_size(arguments);
 
-  // Allocate workspace memory
-  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+//   // Allocate workspace memory
+//   cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
 
-  // Check the problem size is supported or not
-  CUTLASS_CHECK(device_gemm.can_implement(arguments));
+//   // Check the problem size is supported or not
+//   CUTLASS_CHECK(device_gemm.can_implement(arguments));
 
-  // Initialize CUTLASS kernel with arguments and workspace pointer
-  CUTLASS_CHECK(device_gemm.initialize(arguments, workspace.get()));
+//   // Initialize CUTLASS kernel with arguments and workspace pointer
+//   CUTLASS_CHECK(device_gemm.initialize(arguments, workspace.get()));
 
-  // Correctness / Warmup iteration
-  CUTLASS_CHECK(device_gemm());
+//   // Correctness / Warmup iteration
+//   CUTLASS_CHECK(device_gemm());
 
-  // Copy output data from CUTLASS and reference kernel to host for comparison
-  options.tensor_d.sync_host();
+//   // Copy output data from CUTLASS and reference kernel to host for comparison
+//   options.tensor_d.sync_host();
 
-  // Check if output from CUTLASS kernel and reference kernel are equal or not
-  Result result;
-  result.passed = cutlass::reference::host::TensorEquals(
-    options.tensor_d.host_view(),
-    options.tensor_ref_d.host_view());
+//   // Check if output from CUTLASS kernel and reference kernel are equal or not
+//   Result result;
+//   result.passed = cutlass::reference::host::TensorEquals(
+//     options.tensor_d.host_view(),
+//     options.tensor_ref_d.host_view());
 
-  std::cout << "  Disposition: " << (result.passed ? "Passed" : "Failed") << std::endl;
+//   std::cout << "  Disposition: " << (result.passed ? "Passed" : "Failed") << std::endl;
 
-  // Run profiling loop
-  if (options.iterations > 0)
-  {
-    GpuTimer timer;
-    timer.start();
-    for (int iter = 0; iter < options.iterations; ++iter) {
-      CUTLASS_CHECK(device_gemm());
-    }
-    timer.stop();
+//   // Run profiling loop
+//   if (options.iterations > 0)
+//   {
+//     GpuTimer timer;
+//     timer.start();
+//     for (int iter = 0; iter < options.iterations; ++iter) {
+//       CUTLASS_CHECK(device_gemm());
+//     }
+//     timer.stop();
 
-    // Compute average runtime and GFLOPs.
-    float elapsed_ms = timer.elapsed_millis();
-    result.avg_runtime_ms = double(elapsed_ms) / double(options.iterations);
-    result.gflops = options.gflops(result.avg_runtime_ms / 1000.0);
+//     // Compute average runtime and GFLOPs.
+//     float elapsed_ms = timer.elapsed_millis();
+//     result.avg_runtime_ms = double(elapsed_ms) / double(options.iterations);
+//     result.gflops = options.gflops(result.avg_runtime_ms / 1000.0);
 
-    std::cout << "  Avg runtime: " << result.avg_runtime_ms << " ms" << std::endl;
-    std::cout << "  GFLOPs: " << result.gflops << std::endl;
-  }
+//     std::cout << "  Avg runtime: " << result.avg_runtime_ms << " ms" << std::endl;
+//     std::cout << "  GFLOPs: " << result.gflops << std::endl;
+//   }
 
-  if (!result.passed) {
-    exit(-1);
-  }
+//   if (!result.passed) {
+//     exit(-1);
+//   }
 
-  return result;
-}
-
-
-/// Program entrypoint
-int main(int argc, const char **argv)
-{
-  // CUTLASS must be compiled with CUDA 11.0 Toolkit to run these examples.
-  if (!(__CUDACC_VER_MAJOR__ >= 11)) {
-    std::cerr << "Ampere Tensor Core operations must be compiled with CUDA 11.0 Toolkit or later." << std::endl;
-
-    // Returning zero so this test passes on older Toolkits. Its actions are no-op.
-    return 0;
-  }
-
-  // Current device must must have compute capability at least 80
-  cudaDeviceProp props;
-  int current_device_id;
-  CUDA_CHECK(cudaGetDevice(&current_device_id));
-  CUDA_CHECK(cudaGetDeviceProperties(&props, current_device_id));
-  if (!((props.major * 10 + props.minor) >= 80))
-  {
-    std::cerr << "Ampere Tensor Core operations must be run on a machine with compute capability at least 80."
-              << std::endl;
-
-    // Returning zero so this test passes on older Toolkits. Its actions are no-op.
-    return 0;
-  }
-
-  // Parse commandline options
-  Options options("ampere_streamk_gemm");
-  options.parse(argc, argv);
-
-  if (options.help) {
-    options.print_usage(std::cout) << std::endl;
-    return 0;
-  }
-
-  std::cout <<
-    options.iterations << " timing iterations of " <<
-    options.problem_size.m() << " x " <<
-    options.problem_size.n() << " x " <<
-    options.problem_size.k() << " matrix-matrix multiply" << std::endl;
-
-  if (!options.valid()) {
-    std::cerr << "Invalid problem." << std::endl;
-    return -1;
-  }
+//   return result;
+// }
 
 
-  //
-  // Initialize GEMM datasets
-  //
+// /// Program entrypoint
+// int main(int argc, const char **argv)
+// {
+//   // CUTLASS must be compiled with CUDA 11.0 Toolkit to run these examples.
+//   if (!(__CUDACC_VER_MAJOR__ >= 11)) {
+//     std::cerr << "Ampere Tensor Core operations must be compiled with CUDA 11.0 Toolkit or later." << std::endl;
 
-  // Initialize tensors using CUTLASS helper functions
-  options.tensor_a.resize(options.problem_size.mk());       // <- Create matrix A with dimensions M x K
-  options.tensor_b.resize(options.problem_size.kn());       // <- Create matrix B with dimensions K x N
-  options.tensor_c.resize(options.problem_size.mn());       // <- Create matrix C with dimensions M x N
-  options.tensor_d.resize(options.problem_size.mn());       // <- Create matrix D with dimensions M x N used to store output from CUTLASS kernel
-  options.tensor_ref_d.resize(options.problem_size.mn());   // <- Create matrix D with dimensions M x N used to store output from reference kernel
+//     // Returning zero so this test passes on older Toolkits. Its actions are no-op.
+//     return 0;
+//   }
 
-  // Fill matrix A on host with uniform-random data [-2, 2]
-  cutlass::reference::host::TensorFillRandomUniform(
-      options.tensor_a.host_view(),
-      1,
-      ElementA(2),
-      ElementA(-2),
-      0);
+//   // Current device must must have compute capability at least 80
+//   cudaDeviceProp props;
+//   int current_device_id;
+//   CUDA_CHECK(cudaGetDevice(&current_device_id));
+//   CUDA_CHECK(cudaGetDeviceProperties(&props, current_device_id));
+//   if (!((props.major * 10 + props.minor) >= 80))
+//   {
+//     std::cerr << "Ampere Tensor Core operations must be run on a machine with compute capability at least 80."
+//               << std::endl;
 
-  // Fill matrix B on host with uniform-random data [-2, 2]
-  cutlass::reference::host::TensorFillRandomUniform(
-      options.tensor_b.host_view(),
-      1,
-      ElementB(2),
-      ElementB(-2),
-      0);
+//     // Returning zero so this test passes on older Toolkits. Its actions are no-op.
+//     return 0;
+//   }
 
-  // Fill matrix C on host with uniform-random data [-2, 2]
-  cutlass::reference::host::TensorFillRandomUniform(
-      options.tensor_c.host_view(),
-      1,
-      ElementC(2),
-      ElementC(-2),
-      0);
+//   // Parse commandline options
+//   Options options("ampere_streamk_gemm");
+//   options.parse(argc, argv);
 
+//   if (options.help) {
+//     options.print_usage(std::cout) << std::endl;
+//     return 0;
+//   }
 
-  //
-  // Compute reference output
-  //
+//   std::cout <<
+//     options.iterations << " timing iterations of " <<
+//     options.problem_size.m() << " x " <<
+//     options.problem_size.n() << " x " <<
+//     options.problem_size.k() << " matrix-matrix multiply" << std::endl;
 
-  // Copy data from host to GPU
-  options.tensor_a.sync_device();
-  options.tensor_b.sync_device();
-  options.tensor_c.sync_device();
-
-  // Zero-initialize reference output matrix D
-  cutlass::reference::host::TensorFill(options.tensor_ref_d.host_view());
-  options.tensor_ref_d.sync_device();
-
-  // Create instantiation for device reference gemm kernel
-  DeviceGemmReference gemm_reference;
-
-  // Launch device reference gemm kernel
-  gemm_reference(
-    options.problem_size,
-    ElementAccumulator(options.alpha),
-    options.tensor_a.device_ref(),
-    options.tensor_b.device_ref(),
-    ElementAccumulator(options.beta),
-    options.tensor_c.device_ref(),
-    options.tensor_ref_d.device_ref());
-
-  // Wait for kernels to finish
-  CUDA_CHECK(cudaDeviceSynchronize());
-
-  // Copy output data from reference kernel to host for comparison
-  options.tensor_ref_d.sync_host();
+//   if (!options.valid()) {
+//     std::cerr << "Invalid problem." << std::endl;
+//     return -1;
+//   }
 
 
-  //
-  // Evaluate CUTLASS kernels
-  //
+//   //
+//   // Initialize GEMM datasets
+//   //
 
-  // Test default operation
-  if (options.split_k_factor == 1)
-  {
-    // Compare basic data-parallel version versus StreamK version using default load-balancing heuristics
-    Result basic_dp         = run<DeviceGemmBasic>("Basic data-parallel GEMM", options);
-    Result streamk_default  = run<DeviceGemmStreamK>("StreamK GEMM with default load-balancing", options);
+//   // Initialize tensors using CUTLASS helper functions
+//   options.tensor_a.resize(options.problem_size.mk());       // <- Create matrix A with dimensions M x K
+//   options.tensor_b.resize(options.problem_size.kn());       // <- Create matrix B with dimensions K x N
+//   options.tensor_c.resize(options.problem_size.mn());       // <- Create matrix C with dimensions M x N
+//   options.tensor_d.resize(options.problem_size.mn());       // <- Create matrix D with dimensions M x N used to store output from CUTLASS kernel
+//   options.tensor_ref_d.resize(options.problem_size.mn());   // <- Create matrix D with dimensions M x N used to store output from reference kernel
 
-    printf("  Speedup vs Basic-DP: %.3f\n", (basic_dp.avg_runtime_ms / streamk_default.avg_runtime_ms));
+//   // Fill matrix A on host with uniform-random data [-2, 2]
+//   cutlass::reference::host::TensorFillRandomUniform(
+//       options.tensor_a.host_view(),
+//       1,
+//       ElementA(2),
+//       ElementA(-2),
+//       0);
 
-    // Show that StreamK can emulate basic data-parallel GEMM when we set the number of SMs to load-balance across = 1
-    options.avail_sms       = 1;        // Set loadbalancing width to 1 SM (no load balancing)
-    Result streamk_dp       = run<DeviceGemmStreamK>("StreamK emulating basic data-parallel GEMM", options);
-    options.avail_sms       = -1;       // Reset loadbalancing width to unspecified SMs (i.e., the number of device SMs)
+//   // Fill matrix B on host with uniform-random data [-2, 2]
+//   cutlass::reference::host::TensorFillRandomUniform(
+//       options.tensor_b.host_view(),
+//       1,
+//       ElementB(2),
+//       ElementB(-2),
+//       0);
 
-    printf("  Speedup vs Basic-DP: %.3f\n", (basic_dp.avg_runtime_ms / streamk_dp.avg_runtime_ms));
+//   // Fill matrix C on host with uniform-random data [-2, 2]
+//   cutlass::reference::host::TensorFillRandomUniform(
+//       options.tensor_c.host_view(),
+//       1,
+//       ElementC(2),
+//       ElementC(-2),
+//       0);
 
-    options.split_k_factor++;     // Increment splitting factor for next evaluation
 
-  }
+//   //
+//   // Compute reference output
+//   //
 
-  // Show that StreamK can emulate "Split-K" with a tile-splitting factor
-  Result basic_splitk = run<DeviceGemmBasic>(
-    std::string("Basic split-K GEMM with tile-splitting factor ") + std::to_string(options.split_k_factor),
-    options);
+//   // Copy data from host to GPU
+//   options.tensor_a.sync_device();
+//   options.tensor_b.sync_device();
+//   options.tensor_c.sync_device();
 
-  Result streamk_splitk = run<DeviceGemmStreamK>(
-    std::string("StreamK emulating Split-K GEMM with tile-splitting factor ") + std::to_string(options.split_k_factor),
-    options);
+//   // Zero-initialize reference output matrix D
+//   cutlass::reference::host::TensorFill(options.tensor_ref_d.host_view());
+//   options.tensor_ref_d.sync_device();
 
-  printf("  Speedup vs Basic-SplitK: %.3f\n", (basic_splitk.avg_runtime_ms / streamk_splitk.avg_runtime_ms));
+//   // Create instantiation for device reference gemm kernel
+//   DeviceGemmReference gemm_reference;
 
-  return 0;
+//   // Launch device reference gemm kernel
+//   gemm_reference(
+//     options.problem_size,
+//     ElementAccumulator(options.alpha),
+//     options.tensor_a.device_ref(),
+//     options.tensor_b.device_ref(),
+//     ElementAccumulator(options.beta),
+//     options.tensor_c.device_ref(),
+//     options.tensor_ref_d.device_ref());
+
+//   // Wait for kernels to finish
+//   CUDA_CHECK(cudaDeviceSynchronize());
+
+//   // Copy output data from reference kernel to host for comparison
+//   options.tensor_ref_d.sync_host();
+
+
+//   //
+//   // Evaluate CUTLASS kernels
+//   //
+
+//   // Test default operation
+//   if (options.split_k_factor == 1)
+//   {
+//     // Compare basic data-parallel version versus StreamK version using default load-balancing heuristics
+//     Result basic_dp         = run<DeviceGemmBasic>("Basic data-parallel GEMM", options);
+//     Result streamk_default  = run<DeviceGemmStreamK>("StreamK GEMM with default load-balancing", options);
+
+//     printf("  Speedup vs Basic-DP: %.3f\n", (basic_dp.avg_runtime_ms / streamk_default.avg_runtime_ms));
+
+//     // Show that StreamK can emulate basic data-parallel GEMM when we set the number of SMs to load-balance across = 1
+//     options.avail_sms       = 1;        // Set loadbalancing width to 1 SM (no load balancing)
+//     Result streamk_dp       = run<DeviceGemmStreamK>("StreamK emulating basic data-parallel GEMM", options);
+//     options.avail_sms       = -1;       // Reset loadbalancing width to unspecified SMs (i.e., the number of device SMs)
+
+//     printf("  Speedup vs Basic-DP: %.3f\n", (basic_dp.avg_runtime_ms / streamk_dp.avg_runtime_ms));
+
+//     options.split_k_factor++;     // Increment splitting factor for next evaluation
+
+//   }
+
+//   // Show that StreamK can emulate "Split-K" with a tile-splitting factor
+//   Result basic_splitk = run<DeviceGemmBasic>(
+//     std::string("Basic split-K GEMM with tile-splitting factor ") + std::to_string(options.split_k_factor),
+//     options);
+
+//   Result streamk_splitk = run<DeviceGemmStreamK>(
+//     std::string("StreamK emulating Split-K GEMM with tile-splitting factor ") + std::to_string(options.split_k_factor),
+//     options);
+
+//   printf("  Speedup vs Basic-SplitK: %.3f\n", (basic_splitk.avg_runtime_ms / streamk_splitk.avg_runtime_ms));
+
+//   return 0;
+// }
+int main() {
+  cout << "hello" << endl;
 }
