@@ -711,7 +711,7 @@ install(DIRECTORY DESTINATION ${CUTLASS_TEST_INSTALL_PREFIX}/ctest)
 
 ################################################################################
 
-set(CUTLASS_ENABLE_CUBLAS OFF CACHE BOOL "cuBLAS usage for tests")
+set(CUTLASS_ENABLE_CUBLAS ON CACHE BOOL "cuBLAS usage for tests")
 set(CUTLASS_ENABLE_CUDNN OFF CACHE BOOL "cuDNN usage for tests")
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cuBLAS.cmake)
